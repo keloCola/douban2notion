@@ -32,18 +32,16 @@ class NotionHelper:
     database_name_dict = {
         "MOVIE_DATABASE_NAME": "电影",
         "BOOK_DATABASE_NAME": "书架",
-        "DAY_DATABASE_NAME": "日",
-        "WEEK_DATABASE_NAME": "周",
-        "MONTH_DATABASE_NAME": "月",
-        "YEAR_DATABASE_NAME": "年",
+        "YEAR_DATABASE_NAME": "年",  # 只保留年
         "CATEGORY_DATABASE_NAME": "分类",
         "DIRECTOR_DATABASE_NAME": "导演",
         "AUTHOR_DATABASE_NAME": "作者",
     }
     database_id_dict = {}
     image_dict = {}
-    def __init__(self,type):
-        is_movie = True if type=="movie" else False
+    
+    def __init__(self, type):
+        is_movie = True if type == "movie" else False
         page_url = os.getenv("NOTION_MOVIE_URL") if is_movie else os.getenv("NOTION_BOOK_URL")
         notion_token = os.getenv("NOTION_TOKEN")
         if not notion_token:
@@ -55,23 +53,16 @@ class NotionHelper:
         self.__cache = {}
         self.page_id = self.extract_page_id(page_url)
         self.search_database(self.page_id)
+        
         for key in self.database_name_dict.keys():
-            if os.getenv(key) != None and os.getenv(key) != "":
+            if os.getenv(key) is not None and os.getenv(key) != "":
                 self.database_name_dict[key] = os.getenv(key)
+                
         self.book_database_id = self.database_id_dict.get(
             self.database_name_dict.get("BOOK_DATABASE_NAME")
         )
         self.movie_database_id = self.database_id_dict.get(
             self.database_name_dict.get("MOVIE_DATABASE_NAME")
-        )
-        self.day_database_id = self.database_id_dict.get(
-            self.database_name_dict.get("DAY_DATABASE_NAME")
-        )
-        self.week_database_id = self.database_id_dict.get(
-            self.database_name_dict.get("WEEK_DATABASE_NAME")
-        )
-        self.month_database_id = self.database_id_dict.get(
-            self.database_name_dict.get("MONTH_DATABASE_NAME")
         )
         self.year_database_id = self.database_id_dict.get(
             self.database_name_dict.get("YEAR_DATABASE_NAME")
@@ -85,14 +76,13 @@ class NotionHelper:
         self.author_database_id = self.database_id_dict.get(
             self.database_name_dict.get("AUTHOR_DATABASE_NAME")
         )
-        if self.day_database_id:
-            self.write_database_id(self.day_database_id)
 
     def write_database_id(self, database_id):
         env_file = os.getenv('GITHUB_ENV')
         # 将值写入环境文件
         with open(env_file, "a") as file:
             file.write(f"DATABASE_ID={database_id}\n")
+            
     def extract_page_id(self, notion_url):
         # 正则表达式匹配 32 个字符的 Notion page_id
         match = re.search(
@@ -104,13 +94,11 @@ class NotionHelper:
         else:
             raise Exception(f"获取NotionID失败，请检查输入的Url是否正确")
 
-
     def search_database(self, block_id):
         children = self.client.blocks.children.list(block_id=block_id)["results"]
         # 遍历子块
         for child in children:
             # 检查子块的类型
-
             if child["type"] == "child_database":
                 self.database_id_dict[
                     child.get("child_database").get("title")
@@ -121,28 +109,11 @@ class NotionHelper:
             # 如果子块有子块，递归调用函数
             if "has_children" in child and child["has_children"]:
                 self.search_database(child["id"])
+                
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def update_heatmap(self, block_id, url):
         # 更新 image block 的链接
         return self.client.blocks.update(block_id=block_id, embed={"url": url})
-
-    def get_week_relation_id(self, date):
-        year = date.isocalendar().year
-        week = date.isocalendar().week
-        week = f"{year}年第{week}周"
-        start, end = get_first_and_last_day_of_week(date)
-        properties = {"日期": get_date(format_date(start), format_date(end))}
-        return self.get_relation_id(
-            week, self.week_database_id, TARGET_ICON_URL, properties
-        )
-
-    def get_month_relation_id(self, date):
-        month = date.strftime("%Y年%-m月")
-        start, end = get_first_and_last_day_of_month(date)
-        properties = {"日期": get_date(format_date(start), format_date(end))}
-        return self.get_relation_id(
-            month, self.month_database_id, TARGET_ICON_URL, properties
-        )
 
     def get_year_relation_id(self, date):
         year = date.strftime("%Y")
@@ -152,31 +123,6 @@ class NotionHelper:
             year, self.year_database_id, TARGET_ICON_URL, properties
         )
 
-    def get_day_relation_id(self, date):
-        new_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
-        day = new_date.strftime("%Y年%m月%d日")
-        properties = {
-            "日期": get_date(format_date(date)),
-        }
-        properties["年"] = get_relation(
-            [
-                self.get_year_relation_id(new_date),
-            ]
-        )
-        properties["月"] = get_relation(
-            [
-                self.get_month_relation_id(new_date),
-            ]
-        )
-        properties["周"] = get_relation(
-            [
-                self.get_week_relation_id(new_date),
-            ]
-        )
-        return self.get_relation_id(
-            day, self.day_database_id, TARGET_ICON_URL, properties
-        )
-    
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def get_relation_id(self, name, id, icon, properties={}):
         key = f"{id}{name}"
@@ -194,8 +140,6 @@ class NotionHelper:
             page_id = response.get("results")[0].get("id")
         self.__cache[key] = page_id
         return page_id
-
-
 
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def update_book_page(self, page_id, properties):
@@ -235,7 +179,6 @@ class NotionHelper:
     def delete_block(self, block_id):
         return self.client.blocks.delete(block_id=block_id)
 
-
     @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def query_all_by_book(self, database_id, filter):
         results = []
@@ -271,23 +214,9 @@ class NotionHelper:
         return results
 
     def get_date_relation(self, properties, date):
+        """只添加 '年' 的关系"""
         properties["年"] = get_relation(
             [
                 self.get_year_relation_id(date),
-            ]
-        )
-        properties["月"] = get_relation(
-            [
-                self.get_month_relation_id(date),
-            ]
-        )
-        properties["周"] = get_relation(
-            [
-                self.get_week_relation_id(date),
-            ]
-        )
-        properties["日"] = get_relation(
-            [
-                self.get_day_relation_id(date),
             ]
         )
